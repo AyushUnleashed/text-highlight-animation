@@ -300,10 +300,11 @@ def _build_crayon_texture(w: int, h: int, radius: int,
 
     # 4. Combine grain + strokes
     texture = grain * 0.55 + strokes * 0.45
-    # Threshold for crayon coverage (not everything gets coloured)
-    texture = np.where(texture > (1.0 - grain_density),
-                       texture,
-                       texture * 0.25)
+    # Boost contrast: push texture toward 0 or 1 for visible crayon strokes
+    threshold = 1.0 - grain_density
+    texture = np.where(texture > threshold,
+                       0.6 + 0.4 * ((texture - threshold) / max(0.01, 1.0 - threshold)),
+                       texture * 0.15)
 
     # 5. Rough edges: add noise to the boundary mask
     edge_noise = rng.normal(0, edge_roughness, size=(h, w)).astype(np.float32)
