@@ -32,6 +32,12 @@ env/
 # Output videos
 out/
 
+# Test output
+test/
+
+# Temp downloads
+sound_effects/downloads/
+
 # Node / Remotion
 node_modules/
 .remotion/
