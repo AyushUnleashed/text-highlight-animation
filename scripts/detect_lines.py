@@ -115,31 +115,58 @@ def find_range(lines: list[dict], start_text: str, end_text: str) -> list[dict]:
     return lines[start_idx:end_idx + 1]
 
 
-def get_image_dimensions(img_path: str) -> dict:
-    """Return image width, height, and the closest common aspect ratio under 1080p."""
+def get_image_dimensions(img_path: str, snap_aspect: bool = False) -> dict:
+    """Return image dimensions for the output canvas.
+
+    Default (snap_aspect=False): preserve exact aspect ratio, scale longest
+    side to 1080px.  When snap_aspect=True: snap to the nearest common aspect
+    ratio (16:9, 9:16, 1:1, etc.) — useful when padding/image_fill < 1.0.
+    """
     img = Image.open(img_path)
     w, h = img.size
     ratio = w / h
 
-    common_ratios = [
-        (1.0,    1080, 1080,  "1:1 (square)"),
-        (16/9,   1920, 1080,  "16:9 (landscape)"),
-        (9/16,   1080, 1920,  "9:16 (portrait/stories)"),
-        (4/3,    1440, 1080,  "4:3 (classic)"),
-        (3/4,    1080, 1440,  "3:4 (portrait)"),
-        (3/2,    1620, 1080,  "3:2 (photo)"),
-        (2/3,    1080, 1620,  "2:3 (portrait photo)"),
-    ]
+    if snap_aspect:
+        common_ratios = [
+            (1.0,    1080, 1080,  "1:1 (square)"),
+            (16/9,   1920, 1080,  "16:9 (landscape)"),
+            (9/16,   1080, 1920,  "9:16 (portrait/stories)"),
+            (4/3,    1440, 1080,  "4:3 (classic)"),
+            (3/4,    1080, 1440,  "3:4 (portrait)"),
+            (3/2,    1620, 1080,  "3:2 (photo)"),
+            (2/3,    1080, 1620,  "2:3 (portrait photo)"),
+        ]
+        best = min(common_ratios, key=lambda r: abs(ratio - r[0]))
+        suggested_w, suggested_h = best[1], best[2]
+        aspect_label = best[3]
+    else:
+        # Scale to fit within 1920x1080 (landscape) or 1080x1920 (portrait),
+        # preserving exact aspect ratio
+        if w >= h:
+            suggested_h = 1080
+            suggested_w = int(1080 * ratio)
+            if suggested_w > 1920:
+                suggested_w = 1920
+                suggested_h = int(1920 / ratio)
+        else:
+            suggested_w = 1080
+            suggested_h = int(1080 / ratio)
+            if suggested_h > 1920:
+                suggested_h = 1920
+                suggested_w = int(1920 * ratio)
+        aspect_label = f"{w}x{h} (original)"
 
-    best = min(common_ratios, key=lambda r: abs(ratio - r[0]))
+    # Ensure even dimensions (required by H.264)
+    suggested_w = suggested_w if suggested_w % 2 == 0 else suggested_w + 1
+    suggested_h = suggested_h if suggested_h % 2 == 0 else suggested_h + 1
 
     return {
         "original_width": w,
         "original_height": h,
         "aspect_ratio": round(ratio, 3),
-        "suggested_width": best[1],
-        "suggested_height": best[2],
-        "aspect_label": best[3],
+        "suggested_width": suggested_w,
+        "suggested_height": suggested_h,
+        "aspect_label": aspect_label,
     }
 
 
@@ -235,7 +262,10 @@ def main():
               f"w={line['width_pct']}% h={line['height_pct']}%")
 
     style = get_highlight_style(args.image, mode, color, opacity)
-    dims = get_image_dimensions(args.image)
+    # Snap to common aspect ratio when padding/image_fill are customised
+    has_padding = cfg.get("padding_x", 0) > 0 or cfg.get("padding_y", 0) > 0
+    has_fill = cfg.get("image_fill", 1.0) < 1.0
+    dims = get_image_dimensions(args.image, snap_aspect=(has_padding or has_fill))
 
     print(f"\n--- Image dimensions ---")
     print(f"  Original:  {dims['original_width']}x{dims['original_height']} "
