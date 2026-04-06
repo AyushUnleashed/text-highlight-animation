@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── Resolve paths ───────────────────────────────────────────────────────────
+TOOL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="$(pwd)"
+SCRIPTS_DIR="$TOOL_DIR/scripts"
+HIGHLIGHT_DIR="$PROJECT_DIR/.highlight"
+VENV_DIR="$HIGHLIGHT_DIR/.venv"
+PYTHON="$VENV_DIR/bin/python"
+COORDS_FILE="$HIGHLIGHT_DIR/coords.json"
+
+# ─── Colors ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}[info]${NC} $*"; }
+ok()    { echo -e "${GREEN}[ok]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[warn]${NC} $*"; }
+error() { echo -e "${RED}[error]${NC} $*" >&2; }
+die()   { error "$@"; exit 1; }
+
+# ─── Checks ─────────────────────────────────────────────────────────────────
+require_venv() {
+    if [ ! -x "$PYTHON" ]; then
+        die "Python venv not found at $VENV_DIR\nRun 'highlight setup' first."
+    fi
+}
+
+require_tesseract() {
+    if ! command -v tesseract &>/dev/null; then
+        die "Tesseract OCR not found.\nInstall it:\n  Ubuntu/Debian: sudo apt-get install -y tesseract-ocr\n  macOS: brew install tesseract"
+    fi
+}
+
+require_ffmpeg() {
+    if ! command -v ffmpeg &>/dev/null; then
+        die "FFmpeg not found.\nInstall it:\n  Ubuntu/Debian: sudo apt-get install -y ffmpeg\n  macOS: brew install ffmpeg"
+    fi
+}
+
+require_image() {
+    if [ -z "${1:-}" ]; then
+        die "No image path provided.\nUsage: highlight $COMMAND <image>"
+    fi
+    if [ ! -f "$1" ]; then
+        die "Image not found: $1"
+    fi
+}
+
+# ─── Commands ────────────────────────────────────────────────────────────────
+
+cmd_setup() {
+    info "Setting up highlight tool in $PROJECT_DIR"
+    mkdir -p "$HIGHLIGHT_DIR"
+
+    # Check Python
+    if ! command -v python3 &>/dev/null; then
+        die "Python 3 not found. Install Python 3.8+ to continue."
+    fi
+    local pyver
+    pyver="$(python3 --version 2>&1)"
+    ok "Found $pyver"
+
+    # Check Tesseract
+    if command -v tesseract &>/dev/null; then
+        local tesver
+        tesver="$(tesseract --version 2>&1 | head -1)"
+        ok "Found tesseract $tesver"
+    else
+        warn "Tesseract OCR not found. Install it before running detect/generate:"
+        warn "  Ubuntu/Debian: sudo apt-get install -y tesseract-ocr"
+        warn "  macOS: brew install tesseract"
+    fi
+
+    # Check FFmpeg
+    if command -v ffmpeg &>/dev/null; then
+        local ffver
+        ffver="$(ffmpeg -version 2>&1 | head -1)"
+        ok "Found $ffver"
+    else
+        warn "FFmpeg not found. Install it before running render/generate:"
+        warn "  Ubuntu/Debian: sudo apt-get install -y ffmpeg"
+        warn "  macOS: brew install ffmpeg"
+    fi
+
+    # Create venv
+    if [ -x "$PYTHON" ]; then
+        ok "Venv already exists at $VENV_DIR"
+    else
+        info "Creating Python venv at $VENV_DIR"
+        python3 -m venv "$VENV_DIR"
+        ok "Venv created"
+    fi
+
+    # Install deps
+    info "Installing Python dependencies"
+    "$VENV_DIR/bin/pip" install --quiet -r "$SCRIPTS_DIR/requirements.txt"
+    ok "Dependencies installed"
+
+    echo ""
+    ok "Setup complete. You can now run:"
+    echo "  highlight detect <image>                # see detected text lines"
+    echo "  highlight generate <image> --lines N-M  # detect + render mp4"
+}
+
+cmd_detect() {
+    local image="${1:-}"
+    require_image "$image"
+    require_venv
+    require_tesseract
+
+    mkdir -p "$HIGHLIGHT_DIR"
+
+    shift
+    "$PYTHON" "$SCRIPTS_DIR/detect_lines.py" "$image" --output "$COORDS_FILE" "$@"
+}
+
+cmd_generate() {
+    local image="${1:-}"
+    require_image "$image"
+    require_venv
+    require_tesseract
+    require_ffmpeg
+
+    mkdir -p "$HIGHLIGHT_DIR" out
+
+    # Parse flags
+    local detect_args=()
+    local render_args=()
+    local output_name=""
+    shift  # remove image from $@
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name)
+                output_name="$2"
+                render_args+=("--name" "$2")
+                shift 2
+                ;;
+            --duration)
+                render_args+=("--duration-seconds" "$2")
+                shift 2
+                ;;
+            --timestamps)
+                render_args+=("--timestamps" "$2")
+                shift 2
+                ;;
+            --wipe)
+                render_args+=("--wipe" "$2")
+                shift 2
+                ;;
+            --lines|--mode|--color|--opacity|--start|--end)
+                detect_args+=("$1" "$2")
+                shift 2
+                ;;
+            *)
+                detect_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Step 1: Detect text lines
+    info "Detecting text lines..."
+    "$PYTHON" "$SCRIPTS_DIR/detect_lines.py" "$image" --output "$COORDS_FILE" "${detect_args[@]}"
+    echo ""
+
+    # Step 2: Render MP4
+    info "Rendering MP4..."
+    "$PYTHON" "$SCRIPTS_DIR/render_video.py" \
+        "$COORDS_FILE" "$image" \
+        "${render_args[@]}"
+
+    echo ""
+    ok "Done! Output in out/"
+}
+
+cmd_render() {
+    require_venv
+    require_ffmpeg
+
+    local image="${1:-}"
+    require_image "$image"
+
+    if [ ! -f "$COORDS_FILE" ]; then
+        die "No coords.json found. Run 'highlight detect <image>' first."
+    fi
+
+    shift
+    local render_args=("$@")
+
+    info "Rendering MP4..."
+    "$PYTHON" "$SCRIPTS_DIR/render_video.py" \
+        "$COORDS_FILE" "$image" \
+        "${render_args[@]}"
+    echo ""
+    ok "Done!"
+}
+
+cmd_still() {
+    require_venv
+
+    local image="${1:-}"
+    require_image "$image"
+
+    if [ ! -f "$COORDS_FILE" ]; then
+        die "No coords.json found. Run 'highlight detect <image>' first."
+    fi
+
+    shift
+    local render_args=("$@")
+
+    info "Rendering still frame..."
+    "$PYTHON" "$SCRIPTS_DIR/render_video.py" \
+        "$COORDS_FILE" "$image" \
+        --still \
+        "${render_args[@]}"
+    echo ""
+    ok "Done!"
+}
+
+cmd_help() {
+    echo -e "${BOLD}highlight${NC} — animated text highlight overlays on images"
+    echo ""
+    echo "Usage:"
+    echo "  highlight setup                         Set up Python venv and check deps"
+    echo "  highlight detect <image> [options]      Detect text lines via OCR"
+    echo "  highlight generate <image> [options]    Full pipeline: detect → render mp4"
+    echo "  highlight render <image> [options]      Render mp4 from existing coords.json"
+    echo "  highlight still <image> [options]       Render a single frame as PNG"
+    echo ""
+    echo "Detect/Generate options:"
+    echo "  --lines N-M           Select line range (0-indexed)"
+    echo "  --start \"text\"        Start matching from line containing text"
+    echo "  --end \"text\"          End matching at line containing text"
+    echo "  --mode invert|marker  Highlight style (default: invert)"
+    echo "  --color \"#hex\"        Highlight color"
+    echo "  --opacity N           Highlight opacity (0.0-1.0)"
+    echo "  --duration N          Override total video duration in seconds"
+    echo "  --timestamps T1,T2,..  Per-line start times in seconds (for speech sync)"
+    echo "  --wipe D or D1,D2,..  Wipe duration — single or per-line (seconds)"
+    echo "  --name Name           Output filename (default: derived from image)"
+    echo ""
+    echo "Still options:"
+    echo "  --frame N             Frame number to render (default: auto)"
+    echo ""
+    echo "Dependencies: python3, tesseract, ffmpeg"
+    echo ""
+    echo "Working directory structure:"
+    echo "  .highlight/.venv/       Python virtual environment"
+    echo "  .highlight/coords.json  Last OCR detection output"
+    echo "  out/                    Rendered mp4/png output"
+}
+
+# ─── Dispatch ────────────────────────────────────────────────────────────────
+COMMAND="${1:-help}"
+shift 2>/dev/null || true
+
+case "$COMMAND" in
+    setup)    cmd_setup "$@" ;;
+    detect)   cmd_detect "$@" ;;
+    generate) cmd_generate "$@" ;;
+    render)   cmd_render "$@" ;;
+    still)    cmd_still "$@" ;;
+    help|-h|--help) cmd_help ;;
+    *)        die "Unknown command: $COMMAND\nRun 'highlight help' for usage." ;;
+esac

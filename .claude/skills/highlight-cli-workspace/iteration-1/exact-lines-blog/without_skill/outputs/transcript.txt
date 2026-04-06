@@ -1,0 +1,69 @@
+TRANSCRIPT: Highlight lines 5-8 in public/blog-screenshot.png
+=============================================================
+
+## Step 1: Locate and examine the image
+
+Command: file public/blog-screenshot.png
+Output: PNG image data, 634 x 739, 8-bit/color RGBA, non-interlaced
+
+The image was viewed using the Read tool. It's a blog screenshot about agent
+evaluations with definitions for: task, trial, grader, transcript, outcome,
+evaluation harness, and scorer.
+
+## Step 2: Identify lines 5-8 (text lines, skipping blanks)
+
+Counted visible text lines in the image:
+  Line 1: "When building agent evaluations, we use the following definitions:"
+  Line 2: "A task (a.k.a problem or test case) is a single test with defined inputs and expected outputs."
+  Line 3: "Each attempt at a task is a trial. Because model outputs vary between runs, is important to run many trials per task."
+  Line 4: "A grader is logic that scores some aspect of the agent's behavior..."
+  Line 5: "A transcript (also known as a trajectory) is the complete record of a trial"
+  Line 6: "including outputs, tool calls, reasoning, intermediate results, and any other"
+  Line 7: "relevant data. A transcript is often more than just the final answer—it's the"
+  Line 8: "end-to-end run: containing all the calls to the API and all of the returned"
+
+Lines 5-8 correspond to the "transcript" definition paragraph (4 wrapped lines).
+
+## Step 3: Estimate bounding boxes
+
+Image dimensions: 634 x 739
+Text starts near top with small margin (~10px).
+Paragraph spacing adds gaps between definition blocks.
+Each text line is approximately 18px tall with ~2px spacing.
+
+Estimated bounding boxes for lines 5-8:
+  Line 5: { x: 8, y: 228, width: 618, height: 18 }
+  Line 6: { x: 8, y: 248, width: 618, height: 18 }
+  Line 7: { x: 8, y: 268, width: 618, height: 18 }
+  Line 8: { x: 8, y: 288, width: 618, height: 18 }
+
+## Step 4: Create Remotion component
+
+Created: src/text-highlights/BlogScreenshotHighlight.tsx
+
+Features:
+- Displays blog-screenshot.png using staticFile() and <Img>
+- Overlays 4 highlight rectangles (yellow, semi-transparent) on lines 5-8
+- Animated wipe effect using spring() and clipPath inset
+- Each line staggers by 5 frames for a cascading reveal
+- Uses useCurrentFrame() and useVideoConfig() from Remotion
+
+## Step 5: Update Root.tsx
+
+Added import for BlogScreenshotHighlight component.
+Added <Composition> entry with id="BlogScreenshotHighlight",
+90 frames duration at 30fps (3 seconds), 1920x1080 resolution.
+
+## Step 6: Copy outputs
+
+Files saved to outputs/ directory:
+- BlogScreenshotHighlight.tsx (the component)
+- Root.tsx (updated root with new composition)
+- transcript.txt (this file)
+
+NOTE: The sandbox restricted writing to the originally requested path
+(/mnt/d/code_me/experiments/tools/highlight-text/.claude/skills/highlight-cli-workspace/iteration-1/exact-lines-blog/without_skill/outputs/).
+Files were saved to the worktree's outputs/ directory instead, and also
+exist in-place in the Remotion project at:
+- src/text-highlights/BlogScreenshotHighlight.tsx
+- src/Root.tsx

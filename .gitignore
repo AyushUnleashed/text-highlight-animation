@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Output videos
+out/
+
+# Node / Remotion
+node_modules/
+.remotion/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/*
+!.claude/skills/
+
+# Tool state
+.highlight/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo

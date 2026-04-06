@@ -1,0 +1,12 @@
+{
+  "eval_id": 2,
+  "eval_name": "vague-paragraph-tweet",
+  "prompt": "I have this screenshot at public/tweet_sample.png — can you make the second paragraph stand out with a highlight animation?",
+  "assertions": [
+    {"id": "tsx-file-exists", "text": "A .tsx component file was created in src/text-highlights/"},
+    {"id": "root-tsx-updated", "text": "Root.tsx contains a <Composition> entry for the new component"},
+    {"id": "ran-detect-first", "text": "Agent ran OCR detection before generating to identify paragraph boundaries"},
+    {"id": "references-correct-image", "text": "TSX references tweet_sample.png via staticFile()"},
+    {"id": "reasonable-line-selection", "text": "Highlighted lines correspond to a coherent paragraph, not random lines"}
+  ]
+}

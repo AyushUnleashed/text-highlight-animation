@@ -1,0 +1,31 @@
+{
+  "eval_name": "marker-style-blog",
+  "variant": "with_skill",
+  "expectations": [
+    {
+      "text": "A .tsx component file was created in src/text-highlights/",
+      "passed": true,
+      "evidence": "Found: BlogScreenshotHighlight.tsx"
+    },
+    {
+      "text": "Root.tsx contains a <Composition> entry for the new component",
+      "passed": true,
+      "evidence": "Composition entry found"
+    },
+    {
+      "text": "TSX uses normal blend mode (marker style), not difference (invert)",
+      "passed": true,
+      "evidence": "Uses normal blend mode (marker style)"
+    },
+    {
+      "text": "TSX uses a yellow-ish highlight color",
+      "passed": true,
+      "evidence": "Color found: #FFE066"
+    },
+    {
+      "text": "The generated TSX defines exactly 4 highlight lines (lines 13-16)",
+      "passed": true,
+      "evidence": "Found 4 highlight lines (expected 4)"
+    }
+  ]
+}

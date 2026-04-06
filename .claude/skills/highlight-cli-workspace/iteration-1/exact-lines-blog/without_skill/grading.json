@@ -1,0 +1,31 @@
+{
+  "eval_name": "exact-lines-blog",
+  "variant": "without_skill",
+  "expectations": [
+    {
+      "text": "A .tsx component file was created in src/text-highlights/",
+      "passed": true,
+      "evidence": "Found: BlogScreenshotHighlight.tsx"
+    },
+    {
+      "text": "Root.tsx contains a <Composition> entry for the new component",
+      "passed": true,
+      "evidence": "Composition entry found"
+    },
+    {
+      "text": "The generated TSX defines exactly 4 highlight lines",
+      "passed": false,
+      "evidence": "Found 0 highlight lines (expected 4)"
+    },
+    {
+      "text": "TSX uses useCurrentFrame, spring, and staticFile from remotion",
+      "passed": true,
+      "evidence": "All present"
+    },
+    {
+      "text": "TSX references blog-screenshot.png via staticFile()",
+      "passed": true,
+      "evidence": "References blog-screenshot.png"
+    }
+  ]
+}
