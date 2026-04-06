@@ -20,18 +20,28 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-# ─── Animation constants ────────────────────────────────────────────────────
-PADDING_Y_PCT = 0.45          # Vertical padding
-PADDING_X_PCT = 0.7           # Horizontal padding (a bit more breathing room on sides)
-VERTICAL_SHIFT_PCT = 0.08     # Subtle downward shift (OCR boxes hug ascenders slightly)
-HEIGHT_SCALE = 1.0            # Full OCR bounding box height (coordinates are now accurate)
-CORNER_RADIUS_RATIO = 0.22    # Subtle rounded corners
-IMAGE_FILL = 0.9              # Image fills 90% of canvas width (must match prepare_base_image)
-HIGHLIGHT_START_FRAME = 20
-WIPE_FRAMES = 18                  # Slightly longer wipe for smoother feel (was 14)
-HOLD_FRAMES = 30
-FPS = 30
-FEATHER_RATIO = 0.18              # Leading edge feather = 18% of full highlight width
+# ─── Config ──────────────────────────────────────────────────────────────────
+_DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.default.json")
+
+
+def load_config(config_path: str | None = None) -> dict:
+    """Load config from JSON files.
+
+    Always starts from scripts/config.default.json (shipped with the tool).
+    If --config is passed, that file is read and merged on top — so you only
+    need to specify the keys you want to override.
+    If no --config is passed, also checks .highlight/config.json in the
+    working directory as a per-project override.
+    """
+    with open(_DEFAULT_CONFIG) as f:
+        cfg = json.load(f)
+
+    overlay_path = config_path or ".highlight/config.json"
+    if os.path.isfile(overlay_path):
+        with open(overlay_path) as f:
+            cfg.update(json.load(f))
+
+    return cfg
 
 
 def ease_out_back(t: float) -> float:
@@ -56,10 +66,11 @@ def compute_delays_auto(lines: list[dict]) -> list[int]:
     return delays
 
 
-def compute_delays_fixed(lines: list[dict], total_seconds: float) -> list[int]:
+def compute_delays_fixed(lines: list[dict], total_seconds: float, cfg: dict) -> list[int]:
     """Evenly distribute delays across a fixed total duration."""
-    total_frames = int(total_seconds * FPS)
-    available = total_frames - HIGHLIGHT_START_FRAME - WIPE_FRAMES - HOLD_FRAMES
+    fps = cfg["fps"]
+    total_frames = int(total_seconds * fps)
+    available = total_frames - cfg["highlight_start_frame"] - cfg["wipe_frames"] - cfg["hold_frames"]
     if available < 0:
         available = 0
     n = len(lines)
@@ -69,57 +80,58 @@ def compute_delays_fixed(lines: list[dict], total_seconds: float) -> list[int]:
     return [round(i * step) for i in range(n)]
 
 
-def parse_timestamps(ts_str: str, n_lines: int) -> list[int]:
-    """Parse comma-separated timestamps (seconds) into frame delays relative to HIGHLIGHT_START_FRAME.
+def parse_timestamps(ts_str: str, n_lines: int, cfg: dict) -> list[int]:
+    """Parse comma-separated timestamps (seconds) into frame delays relative to highlight_start_frame.
 
     Example: "0.5,1.8,3.2" → [15, 54, 96] (at 30fps)
     """
+    fps = cfg["fps"]
+    start = cfg["highlight_start_frame"]
     parts = [float(t.strip()) for t in ts_str.split(",")]
     if len(parts) == 1:
-        # Single value = uniform start offset for all lines, staggered by auto
         return None  # signal to caller: use as base offset only
     if len(parts) != n_lines:
         print(f"Error: --timestamps has {len(parts)} values but there are {n_lines} lines",
               file=sys.stderr)
         sys.exit(1)
-    # Convert seconds to frame delays (relative to HIGHLIGHT_START_FRAME=0)
-    # The first timestamp becomes delay=0 offset, rest are relative to video start
-    return [round(t * FPS) - HIGHLIGHT_START_FRAME for t in parts]
+    return [round(t * fps) - start for t in parts]
 
 
-def parse_wipe_durations(wipe_str: str, n_lines: int) -> list[int]:
+def parse_wipe_durations(wipe_str: str, n_lines: int, cfg: dict) -> list[int]:
     """Parse per-line wipe durations (seconds) into frame counts.
 
     Example: "0.8,0.3,1.0" → [24, 9, 30]
     Single value: "0.5" → [15, 15, 15] (applied to all lines)
     """
+    fps = cfg["fps"]
     parts = [float(w.strip()) for w in wipe_str.split(",")]
     if len(parts) == 1:
-        return [max(1, round(parts[0] * FPS))] * n_lines
+        return [max(1, round(parts[0] * fps))] * n_lines
     if len(parts) != n_lines:
         print(f"Error: --wipe has {len(parts)} values but there are {n_lines} lines",
               file=sys.stderr)
         sys.exit(1)
-    return [max(1, round(w * FPS)) for w in parts]
+    return [max(1, round(w * fps)) for w in parts]
 
 
 def build_highlight_rects(coords_data: dict, canvas_w: int, canvas_h: int,
                           duration_seconds: float | None,
                           timestamps_str: str | None = None,
                           wipe_str: str | None = None,
-                          img_path: str | None = None) -> tuple[list[dict], int]:
+                          img_path: str | None = None,
+                          cfg: dict | None = None) -> tuple[list[dict], int]:
     """Convert line percentages to pixel rects with delays. Returns (rects, total_frames)."""
+    if cfg is None:
+        cfg = load_config()
     lines = coords_data["lines"]
     n = len(lines)
 
     # ── Compute image→canvas coordinate mapping ────────────────────────
-    # OCR percentages are relative to the original image, but the image is
-    # scaled to IMAGE_FILL of canvas width and centered. We must map correctly.
     dims = coords_data.get("dimensions", {})
     orig_w = dims.get("original_width", canvas_w)
     orig_h = dims.get("original_height", canvas_h)
 
-    target_w = int(canvas_w * IMAGE_FILL)
+    target_w = int(canvas_w * cfg["image_fill"])
     scale = target_w / orig_w
     target_h = int(orig_h * scale)
     offset_x = (canvas_w - target_w) // 2
@@ -127,40 +139,35 @@ def build_highlight_rects(coords_data: dict, canvas_w: int, canvas_h: int,
 
     # ── Per-line wipe durations ──────────────────────────────────────────
     if wipe_str:
-        wipe_frames_list = parse_wipe_durations(wipe_str, n)
+        wipe_frames_list = parse_wipe_durations(wipe_str, n, cfg)
     else:
-        wipe_frames_list = [WIPE_FRAMES] * n
+        wipe_frames_list = [cfg["wipe_frames"]] * n
 
     # ── Per-line delays (start times) ────────────────────────────────────
     if timestamps_str:
-        delays = parse_timestamps(timestamps_str, n)
+        delays = parse_timestamps(timestamps_str, n, cfg)
         if delays is None:
-            # Single timestamp value — not per-line, treat as base offset
             delays = compute_delays_auto(lines)
-        # Total duration: last line start + its wipe + hold
-        last_end = max(HIGHLIGHT_START_FRAME + delays[i] + wipe_frames_list[i] for i in range(n))
-        total_frames = last_end + HOLD_FRAMES
+        last_end = max(cfg["highlight_start_frame"] + delays[i] + wipe_frames_list[i] for i in range(n))
+        total_frames = last_end + cfg["hold_frames"]
     elif duration_seconds:
-        delays = compute_delays_fixed(lines, duration_seconds)
-        total_frames = int(duration_seconds * FPS)
+        delays = compute_delays_fixed(lines, duration_seconds, cfg)
+        total_frames = int(duration_seconds * cfg["fps"])
     else:
         delays = compute_delays_auto(lines)
         last_delay = delays[-1] if delays else 0
-        last_wipe = wipe_frames_list[-1] if wipe_frames_list else WIPE_FRAMES
-        total_frames = HIGHLIGHT_START_FRAME + last_delay + last_wipe + HOLD_FRAMES
+        last_wipe = wipe_frames_list[-1] if wipe_frames_list else cfg["wipe_frames"]
+        total_frames = cfg["highlight_start_frame"] + last_delay + last_wipe + cfg["hold_frames"]
 
     rects = []
     for i, line in enumerate(lines):
         raw_h_pct = line["height_pct"]
 
-        # Apply padding (in image-space percentages)
-        top_pct = line["top_pct"] + raw_h_pct * VERTICAL_SHIFT_PCT - PADDING_Y_PCT
-        left_pct = line["left_pct"] - PADDING_X_PCT
-        width_pct = line["width_pct"] + PADDING_X_PCT * 2
-        height_pct = raw_h_pct * HEIGHT_SCALE + PADDING_Y_PCT * 2
+        top_pct    = line["top_pct"] + raw_h_pct * cfg["vertical_shift"] - cfg["padding_y"]
+        left_pct   = line["left_pct"] - cfg["padding_x"]
+        width_pct  = line["width_pct"] + cfg["padding_x"] * 2
+        height_pct = raw_h_pct * cfg["height_scale"] + cfg["padding_y"] * 2
 
-        # Map from image-space percentages to canvas-space pixels
-        # Percentages are relative to original image, NOT the canvas
         x = offset_x + (left_pct / 100.0) * target_w
         y = offset_y + (top_pct / 100.0) * target_h
         w = (width_pct / 100.0) * target_w
@@ -198,8 +205,10 @@ def _create_rounded_mask(w: int, h: int, radius: int) -> Image.Image:
 
 
 def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
-                 frame_num: int) -> Image.Image:
+                 frame_num: int, cfg: dict | None = None) -> Image.Image:
     """Render a single animation frame with highlight overlays."""
+    if cfg is None:
+        cfg = load_config()
     mode = style["mode"]
     color_hex = style["color"]
     opacity = style["opacity"]
@@ -210,13 +219,13 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
     canvas_w, canvas_h = frame.size
 
     for rect in rects:
-        trigger_frame = HIGHLIGHT_START_FRAME + rect["delay"]
+        trigger_frame = cfg["highlight_start_frame"] + rect["delay"]
 
         if frame_num < trigger_frame:
             continue
 
         # Wipe progress: 0.0 → 1.0 over this line's wipe duration
-        line_wipe = rect.get("wipe_frames", WIPE_FRAMES)
+        line_wipe = rect.get("wipe_frames", cfg["wipe_frames"])
         elapsed = frame_num - trigger_frame
         raw_t = min(1.0, elapsed / line_wipe)
 
@@ -252,7 +261,7 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
             continue
 
         # Rounded corner radius proportional to height
-        radius = max(2, int(full_h * CORNER_RADIUS_RATIO))
+        radius = max(2, int(full_h * cfg["corner_radius"]))
 
         # Create the rounded mask at full width, then crop to visible portion (wipe)
         full_mask = _create_rounded_mask(full_w, full_h, radius)
@@ -261,7 +270,7 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
         # Apply feathered leading edge — soft gradient fade at the wipe front
         mask_arr = np.array(wipe_mask).astype(np.float32)
         if clamped_progress < 1.0:
-            feather_px = max(4, int(full_w * FEATHER_RATIO))
+            feather_px = max(4, int(full_w * cfg["feather_ratio"]))
             feather_start = max(0, visible_w - feather_px)
             for col in range(feather_start, visible_w):
                 t = (col - feather_start) / feather_px  # 0 at start → 1 at edge
@@ -296,16 +305,19 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
 
 
 def render_still(base_img: Image.Image, rects: list[dict], style: dict,
-                 frame_num: int, output_path: str):
+                 frame_num: int, output_path: str, cfg: dict | None = None):
     """Render a single frame and save as PNG."""
-    frame = render_frame(base_img, rects, style, frame_num)
+    frame = render_frame(base_img, rects, style, frame_num, cfg)
     frame = frame.convert("RGB")
     frame.save(output_path, "PNG")
 
 
 def render_mp4(base_img: Image.Image, rects: list[dict], style: dict,
-               total_frames: int, output_path: str, canvas_w: int, canvas_h: int):
+               total_frames: int, output_path: str, canvas_w: int, canvas_h: int,
+               cfg: dict | None = None):
     """Render all frames and pipe to FFmpeg for MP4 output."""
+    if cfg is None:
+        cfg = load_config()
     # Ensure even dimensions (required by h264)
     canvas_w = canvas_w if canvas_w % 2 == 0 else canvas_w + 1
     canvas_h = canvas_h if canvas_h % 2 == 0 else canvas_h + 1
@@ -316,11 +328,11 @@ def render_mp4(base_img: Image.Image, rects: list[dict], style: dict,
         "-vcodec", "rawvideo",
         "-s", f"{canvas_w}x{canvas_h}",
         "-pix_fmt", "rgb24",
-        "-r", str(FPS),
+        "-r", str(cfg["fps"]),
         "-i", "-",
         "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
+        "-preset", cfg["ffmpeg_preset"],
+        "-crf", str(cfg["crf"]),
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         output_path,
@@ -335,12 +347,12 @@ def render_mp4(base_img: Image.Image, rects: list[dict], style: dict,
 
     try:
         for f_num in range(total_frames):
-            frame = render_frame(base_img, rects, style, f_num)
+            frame = render_frame(base_img, rects, style, f_num, cfg)
             frame = frame.convert("RGB").resize((canvas_w, canvas_h), Image.LANCZOS)
             proc.stdin.write(frame.tobytes())
 
             # Progress
-            if (f_num + 1) % FPS == 0 or f_num == total_frames - 1:
+            if (f_num + 1) % cfg["fps"] == 0 or f_num == total_frames - 1:
                 pct = int((f_num + 1) / total_frames * 100)
                 print(f"\r  Rendering: {f_num + 1}/{total_frames} frames ({pct}%)", end="", flush=True)
 
@@ -361,13 +373,15 @@ def render_mp4(base_img: Image.Image, rects: list[dict], style: dict,
 
 
 def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
-                       bg_color: str) -> Image.Image:
+                       bg_color: str, cfg: dict | None = None) -> Image.Image:
     """Load source image, center it on a canvas with padding (like the old Remotion layout)."""
+    if cfg is None:
+        cfg = load_config()
     src = Image.open(img_path).convert("RGBA")
     src_w, src_h = src.size
 
-    # Target: image fills IMAGE_FILL of canvas width, centered
-    target_w = int(canvas_w * IMAGE_FILL)
+    # Target: image fills image_fill% of canvas width, centered
+    target_w = int(canvas_w * cfg["image_fill"])
     scale = target_w / src_w
     target_h = int(src_h * scale)
 
@@ -380,6 +394,39 @@ def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
     canvas.paste(src_resized, (offset_x, offset_y), src_resized)
 
     return canvas
+
+
+def build_default_name(image_path: str, coords_data: dict, total_frames: int, cfg: dict) -> str:
+    """Build a descriptive output filename from render parameters.
+
+    Format: {image}_lines{x}-{y}[_{mode}][_{color}]_{duration}s
+    Mode and color are omitted when they match the defaults (invert / ffffff).
+
+    Examples:
+      tech_crunch_ex_lines1-4_2.8s           (defaults)
+      tech_crunch_ex_lines1-4_marker_ffe066_2.8s  (custom mode+color)
+    """
+    base = os.path.splitext(os.path.basename(image_path))[0]
+    style = coords_data["style"]
+    lr = coords_data.get("line_range", {})
+    line_range = f"lines{lr.get('start', 0)}-{lr.get('end', len(coords_data['lines']) - 1)}"
+
+    duration = round(total_frames / cfg["fps"], 1)
+    dur_str = str(int(duration)) if duration == int(duration) else str(duration)
+
+    parts = [base, line_range]
+
+    # Only include mode/color when non-default
+    default_mode  = cfg.get("mode", "invert")
+    default_color = "ffffff"
+    mode  = style["mode"]
+    color = style["color"].lstrip("#").lower()
+    if mode != default_mode or color != default_color:
+        parts.append(mode)
+        parts.append(color)
+
+    parts.append(f"{dur_str}s")
+    return "_".join(parts)
 
 
 def main():
@@ -401,8 +448,12 @@ def main():
                         help="Frame number for --still (default: auto-pick near end)")
     parser.add_argument("--name", default=None,
                         help="Output name (default: derived from image filename)")
+    parser.add_argument("--config", default=None,
+                        help="Path to config JSON (default: .highlight/config.json if it exists)")
 
     args = parser.parse_args()
+
+    cfg = load_config(args.config)
 
     with open(args.coords_json) as f:
         coords_data = json.load(f)
@@ -413,33 +464,30 @@ def main():
     canvas_w = dims["suggested_width"]
     canvas_h = dims["suggested_height"]
 
-    bg_color = "#000000" if style["isDarkBg"] else "#f5f5f5"
+    bg_color = cfg["dark_bg_color"] if style["isDarkBg"] else cfg["light_bg_color"]
 
     # Build rects and compute duration
     rects, total_frames = build_highlight_rects(
         coords_data, canvas_w, canvas_h, args.duration_seconds,
-        timestamps_str=args.timestamps, wipe_str=args.wipe)
+        timestamps_str=args.timestamps, wipe_str=args.wipe, cfg=cfg)
 
     # Determine output name
     name = args.name
     if not name:
-        base = os.path.splitext(os.path.basename(args.image))[0]
-        name = base
+        name = build_default_name(args.image, coords_data, total_frames, cfg)
 
-    # Prepare base image (centered on canvas like old Remotion layout)
-    base_img = prepare_base_image(args.image, canvas_w, canvas_h, bg_color)
+    # Prepare base image (centered on canvas)
+    base_img = prepare_base_image(args.image, canvas_w, canvas_h, bg_color, cfg)
 
     os.makedirs("out", exist_ok=True)
 
     if args.still:
         frame_num = args.frame
         if frame_num is None:
-            # Auto-pick: last highlight fully wiped
             frame_num = min(total_frames - 1,
-                           HIGHLIGHT_START_FRAME + (rects[-1]["delay"] if rects else 0) + WIPE_FRAMES + 2)
+                           cfg["highlight_start_frame"] + (rects[-1]["delay"] if rects else 0) + cfg["wipe_frames"] + 2)
         output_path = args.output or f"out/{name}_frame{frame_num}.png"
-        render_still(base_img, rects, style, frame_num, output_path)
-        # Output metadata as JSON for the CLI to parse
+        render_still(base_img, rects, style, frame_num, output_path, cfg)
         meta = {
             "output_path": output_path,
             "frame": frame_num,
@@ -449,14 +497,13 @@ def main():
         print(json.dumps(meta))
     else:
         output_path = args.output or f"out/{name}.mp4"
-        print(f"  Canvas: {canvas_w}x{canvas_h}, {total_frames} frames ({round(total_frames/FPS, 1)}s)")
-        render_mp4(base_img, rects, style, total_frames, output_path, canvas_w, canvas_h)
-        # Output metadata as JSON on last line for the CLI
+        print(f"  Canvas: {canvas_w}x{canvas_h}, {total_frames} frames ({round(total_frames/cfg['fps'], 1)}s)")
+        render_mp4(base_img, rects, style, total_frames, output_path, canvas_w, canvas_h, cfg)
         meta = {
             "output_path": output_path,
             "total_frames": total_frames,
-            "duration_seconds": round(total_frames / FPS, 1),
-            "fps": FPS,
+            "duration_seconds": round(total_frames / cfg["fps"], 1),
+            "fps": cfg["fps"],
             "canvas": f"{canvas_w}x{canvas_h}",
         }
         print(json.dumps(meta))

@@ -197,7 +197,24 @@ def main():
                         help="Highlight color as hex (e.g. '#FFE066').")
     parser.add_argument("--opacity", type=float, default=None,
                         help="Highlight opacity 0.0-1.0.")
+    parser.add_argument("--config", default=None,
+                        help="Path to config JSON (default: .highlight/config.json if it exists). "
+                             "Provides fallback defaults for mode, color, opacity.")
     args = parser.parse_args()
+
+    # Load config: start from config.default.json, overlay user config on top
+    _default_cfg_path = os.path.join(os.path.dirname(__file__), "config.default.json")
+    with open(_default_cfg_path) as f:
+        cfg = json.load(f)
+    overlay_path = args.config or ".highlight/config.json"
+    if os.path.isfile(overlay_path):
+        with open(overlay_path) as f:
+            cfg.update(json.load(f))
+
+    # CLI flags take priority over config
+    mode    = args.mode    or cfg.get("mode")
+    color   = args.color   or cfg.get("color")
+    opacity = args.opacity if args.opacity is not None else cfg.get("opacity")
 
     lines = detect_lines(args.image)
 
@@ -207,7 +224,7 @@ def main():
         print(f"      top={line['top_pct']}% left={line['left_pct']}% "
               f"w={line['width_pct']}% h={line['height_pct']}%")
 
-    style = get_highlight_style(args.image, args.mode, args.color, args.opacity)
+    style = get_highlight_style(args.image, mode, color, opacity)
     dims = get_image_dimensions(args.image)
 
     print(f"\n--- Image dimensions ---")
@@ -224,18 +241,23 @@ def main():
     print(f"  Opacity:   {style['opacity']}")
     print(f"  BlendMode: {style['blendMode']}")
 
-    # Select lines based on user input
+    # Select lines based on user input; track start/end indices for naming
     matched = lines
+    line_start, line_end = 0, max(0, len(lines) - 1)
     if args.lines:
-        start_idx, end_idx = parse_line_range(args.lines)
-        matched = lines[start_idx:end_idx + 1]
-        print(f"\n--- Selected lines {start_idx}-{end_idx} ({len(matched)} lines) ---\n")
+        line_start, line_end = parse_line_range(args.lines)
+        matched = lines[line_start:line_end + 1]
+        print(f"\n--- Selected lines {line_start}-{line_end} ({len(matched)} lines) ---\n")
         for line in matched:
             print(f"  \"{line['text']}\"")
             print(f"      top={line['top_pct']}% left={line['left_pct']}% "
                   f"w={line['width_pct']}% h={line['height_pct']}%")
     elif args.start and args.end:
         matched = find_range(lines, args.start, args.end)
+        # Resolve indices in the original list
+        if matched:
+            line_start = lines.index(matched[0])
+            line_end = lines.index(matched[-1])
         print(f"\n--- Matched {len(matched)} lines ---\n")
         for line in matched:
             print(f"  \"{line['text']}\"")
@@ -263,6 +285,7 @@ def main():
         os.makedirs(output_dir, exist_ok=True)
 
     output = {"style": style, "dimensions": dims, "lines": matched,
+              "line_range": {"start": line_start, "end": line_end},
               "auto_duration": {"frames": auto_duration_frames,
                                 "seconds": auto_duration_seconds}}
     with open(args.output, "w") as f:
