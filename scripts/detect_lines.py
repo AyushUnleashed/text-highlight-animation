@@ -1,4 +1,4 @@
-"""Detect text line bounding boxes in any image using Tesseract OCR.
+"""Detect text line bounding boxes in any image using RapidOCR (ONNX-based).
 
 Usage:
   python detect_lines.py <image_path> [--output path] [--start "text"] [--end "text"]
@@ -16,7 +16,16 @@ import os
 import argparse
 import numpy as np
 from PIL import Image
-import pytesseract
+from rapidocr_onnxruntime import RapidOCR
+
+_ocr = None
+
+
+def get_ocr() -> RapidOCR:
+    global _ocr
+    if _ocr is None:
+        _ocr = RapidOCR()
+    return _ocr
 
 
 def detect_bg_brightness(img: Image.Image) -> float:
@@ -33,29 +42,48 @@ def detect_bg_brightness(img: Image.Image) -> float:
 
 
 def detect_lines(img_path: str) -> list[dict]:
-    """Run Tesseract OCR and group words into lines with bounding boxes."""
+    """Run RapidOCR and group detections into lines with bounding boxes.
+
+    RapidOCR uses ONNX-based deep-learning models (~50MB total, no PyTorch/CUDA)
+    and handles colored backgrounds (e.g. white text on green) far better than
+    Tesseract's pixel-thresholding approach.
+    """
     img = Image.open(img_path)
     w, h = img.size
-    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
 
-    lines: dict[tuple, dict] = {}
-    for i in range(len(data["text"])):
-        text = data["text"][i].strip()
+    ocr = get_ocr()
+    # result: list of [bbox, text, confidence]
+    # bbox: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] (four corners, clockwise)
+    result, _ = ocr(img_path)
+    if not result:
+        return []
+
+    # Group word detections into lines by vertical proximity (within 15px).
+    # Key = approximate top-y of the line.
+    lines: dict[int, dict] = {}
+    for bbox, text, _conf in result:
+        text = text.strip()
         if not text:
             continue
-        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
-        x1 = data["left"][i]
-        y1 = data["top"][i]
-        x2 = x1 + data["width"][i]
-        y2 = y1 + data["height"][i]
-        if key not in lines:
-            lines[key] = {"words": [], "left": x1, "top": y1, "right": x2, "bottom": y2}
-        else:
-            lines[key]["left"] = min(lines[key]["left"], x1)
-            lines[key]["top"] = min(lines[key]["top"], y1)
-            lines[key]["right"] = max(lines[key]["right"], x2)
-            lines[key]["bottom"] = max(lines[key]["bottom"], y2)
-        lines[key]["words"].append(text)
+        xs = [p[0] for p in bbox]
+        ys = [p[1] for p in bbox]
+        x1, y1 = int(min(xs)), int(min(ys))
+        x2, y2 = int(max(xs)), int(max(ys))
+
+        matched_key = None
+        for key in lines:
+            if abs(key - y1) < 15:
+                matched_key = key
+                break
+        if matched_key is None:
+            matched_key = y1
+            lines[matched_key] = {"words": [], "left": x1, "top": y1, "right": x2, "bottom": y2}
+
+        lines[matched_key]["words"].append(text)
+        lines[matched_key]["left"]   = min(lines[matched_key]["left"],   x1)
+        lines[matched_key]["top"]    = min(lines[matched_key]["top"],    y1)
+        lines[matched_key]["right"]  = max(lines[matched_key]["right"],  x2)
+        lines[matched_key]["bottom"] = max(lines[matched_key]["bottom"], y2)
 
     results = []
     for key in sorted(lines.keys()):
@@ -64,9 +92,9 @@ def detect_lines(img_path: str) -> list[dict]:
         results.append({
             "text": text,
             "word_count": len(line["words"]),
-            "top_pct": round(line["top"] / h * 100, 2),
-            "left_pct": round(line["left"] / w * 100, 2),
-            "width_pct": round((line["right"] - line["left"]) / w * 100, 2),
+            "top_pct":    round(line["top"]                    / h * 100, 2),
+            "left_pct":   round(line["left"]                   / w * 100, 2),
+            "width_pct":  round((line["right"] - line["left"]) / w * 100, 2),
             "height_pct": round((line["bottom"] - line["top"]) / h * 100, 2),
         })
     return results

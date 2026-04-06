@@ -66,17 +66,6 @@ cmd_setup() {
     pyver="$(python3 --version 2>&1)"
     ok "Found $pyver"
 
-    # Check Tesseract
-    if command -v tesseract &>/dev/null; then
-        local tesver
-        tesver="$(tesseract --version 2>&1 | head -1)"
-        ok "Found tesseract $tesver"
-    else
-        warn "Tesseract OCR not found. Install it before running detect/generate:"
-        warn "  Ubuntu/Debian: sudo apt-get install -y tesseract-ocr"
-        warn "  macOS: brew install tesseract"
-    fi
-
     # Check FFmpeg
     if command -v ffmpeg &>/dev/null; then
         local ffver
@@ -112,7 +101,6 @@ cmd_detect() {
     local image="${1:-}"
     require_image "$image"
     require_venv
-    require_tesseract
 
     mkdir -p "$HIGHLIGHT_DIR"
 
@@ -124,7 +112,6 @@ cmd_generate() {
     local image="${1:-}"
     require_image "$image"
     require_venv
-    require_tesseract
     require_ffmpeg
 
     mkdir -p "$HIGHLIGHT_DIR" out
