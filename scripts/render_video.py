@@ -399,18 +399,34 @@ def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
 def build_default_name(image_path: str, coords_data: dict, total_frames: int, cfg: dict) -> str:
     """Build a descriptive output filename from render parameters.
 
-    Format: {image}_{n}lines_{mode}_{color}_{duration}s
-    Example: tech_crunch_ex_4lines_marker_ffe066_2.8s
+    Format: {image}_lines{x}-{y}[_{mode}][_{color}]_{duration}s
+    Mode and color are omitted when they match the defaults (invert / ffffff).
+
+    Examples:
+      tech_crunch_ex_lines1-4_2.8s           (defaults)
+      tech_crunch_ex_lines1-4_marker_ffe066_2.8s  (custom mode+color)
     """
     base = os.path.splitext(os.path.basename(image_path))[0]
     style = coords_data["style"]
-    n_lines = len(coords_data["lines"])
-    mode = style["mode"]
-    color = style["color"].lstrip("#").lower()
+    lr = coords_data.get("line_range", {})
+    line_range = f"lines{lr.get('start', 0)}-{lr.get('end', len(coords_data['lines']) - 1)}"
+
     duration = round(total_frames / cfg["fps"], 1)
-    # Format duration: drop decimal if it's a whole number (e.g. 3.0 → 3)
     dur_str = str(int(duration)) if duration == int(duration) else str(duration)
-    return f"{base}_{n_lines}lines_{mode}_{color}_{dur_str}s"
+
+    parts = [base, line_range]
+
+    # Only include mode/color when non-default
+    default_mode  = cfg.get("mode", "invert")
+    default_color = "ffffff"
+    mode  = style["mode"]
+    color = style["color"].lstrip("#").lower()
+    if mode != default_mode or color != default_color:
+        parts.append(mode)
+        parts.append(color)
+
+    parts.append(f"{dur_str}s")
+    return "_".join(parts)
 
 
 def main():

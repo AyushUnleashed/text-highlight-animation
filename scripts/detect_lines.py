@@ -241,18 +241,23 @@ def main():
     print(f"  Opacity:   {style['opacity']}")
     print(f"  BlendMode: {style['blendMode']}")
 
-    # Select lines based on user input
+    # Select lines based on user input; track start/end indices for naming
     matched = lines
+    line_start, line_end = 0, max(0, len(lines) - 1)
     if args.lines:
-        start_idx, end_idx = parse_line_range(args.lines)
-        matched = lines[start_idx:end_idx + 1]
-        print(f"\n--- Selected lines {start_idx}-{end_idx} ({len(matched)} lines) ---\n")
+        line_start, line_end = parse_line_range(args.lines)
+        matched = lines[line_start:line_end + 1]
+        print(f"\n--- Selected lines {line_start}-{line_end} ({len(matched)} lines) ---\n")
         for line in matched:
             print(f"  \"{line['text']}\"")
             print(f"      top={line['top_pct']}% left={line['left_pct']}% "
                   f"w={line['width_pct']}% h={line['height_pct']}%")
     elif args.start and args.end:
         matched = find_range(lines, args.start, args.end)
+        # Resolve indices in the original list
+        if matched:
+            line_start = lines.index(matched[0])
+            line_end = lines.index(matched[-1])
         print(f"\n--- Matched {len(matched)} lines ---\n")
         for line in matched:
             print(f"  \"{line['text']}\"")
@@ -280,6 +285,7 @@ def main():
         os.makedirs(output_dir, exist_ok=True)
 
     output = {"style": style, "dimensions": dims, "lines": matched,
+              "line_range": {"start": line_start, "end": line_end},
               "auto_duration": {"frames": auto_duration_frames,
                                 "seconds": auto_duration_seconds}}
     with open(args.output, "w") as f:
