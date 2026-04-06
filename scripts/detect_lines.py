@@ -202,13 +202,16 @@ def main():
                              "Provides fallback defaults for mode, color, opacity.")
     args = parser.parse_args()
 
-    # Config file provides fallback defaults for style (CLI flags still win)
-    cfg_path = args.config or ".highlight/config.json"
-    cfg: dict = {}
-    if os.path.isfile(cfg_path):
-        with open(cfg_path) as f:
-            cfg = json.load(f)
+    # Load config: start from config.default.json, overlay user config on top
+    _default_cfg_path = os.path.join(os.path.dirname(__file__), "config.default.json")
+    with open(_default_cfg_path) as f:
+        cfg = json.load(f)
+    overlay_path = args.config or ".highlight/config.json"
+    if os.path.isfile(overlay_path):
+        with open(overlay_path) as f:
+            cfg.update(json.load(f))
 
+    # CLI flags take priority over config
     mode    = args.mode    or cfg.get("mode")
     color   = args.color   or cfg.get("color")
     opacity = args.opacity if args.opacity is not None else cfg.get("opacity")

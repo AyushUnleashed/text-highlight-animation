@@ -1,4 +1,5 @@
 {
+  "mode":                  "invert",
   "padding_y":             0.45,
   "padding_x":             0.7,
   "vertical_shift":        0.08,
