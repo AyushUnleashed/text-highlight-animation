@@ -408,6 +408,23 @@ def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
     return canvas
 
 
+def build_default_name(image_path: str, coords_data: dict, total_frames: int, cfg: dict) -> str:
+    """Build a descriptive output filename from render parameters.
+
+    Format: {image}_{n}lines_{mode}_{color}_{duration}s
+    Example: tech_crunch_ex_4lines_marker_ffe066_2.8s
+    """
+    base = os.path.splitext(os.path.basename(image_path))[0]
+    style = coords_data["style"]
+    n_lines = len(coords_data["lines"])
+    mode = style["mode"]
+    color = style["color"].lstrip("#").lower()
+    duration = round(total_frames / cfg["fps"], 1)
+    # Format duration: drop decimal if it's a whole number (e.g. 3.0 → 3)
+    dur_str = str(int(duration)) if duration == int(duration) else str(duration)
+    return f"{base}_{n_lines}lines_{mode}_{color}_{dur_str}s"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Render highlight animation as MP4 or still PNG")
@@ -453,8 +470,7 @@ def main():
     # Determine output name
     name = args.name
     if not name:
-        base = os.path.splitext(os.path.basename(args.image))[0]
-        name = base
+        name = build_default_name(args.image, coords_data, total_frames, cfg)
 
     # Prepare base image (centered on canvas)
     base_img = prepare_base_image(args.image, canvas_w, canvas_h, bg_color, cfg)
