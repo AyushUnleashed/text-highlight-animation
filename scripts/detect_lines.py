@@ -197,7 +197,21 @@ def main():
                         help="Highlight color as hex (e.g. '#FFE066').")
     parser.add_argument("--opacity", type=float, default=None,
                         help="Highlight opacity 0.0-1.0.")
+    parser.add_argument("--config", default=None,
+                        help="Path to config JSON (default: .highlight/config.json if it exists). "
+                             "Provides fallback defaults for mode, color, opacity.")
     args = parser.parse_args()
+
+    # Config file provides fallback defaults for style (CLI flags still win)
+    cfg_path = args.config or ".highlight/config.json"
+    cfg: dict = {}
+    if os.path.isfile(cfg_path):
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+
+    mode    = args.mode    or cfg.get("mode")
+    color   = args.color   or cfg.get("color")
+    opacity = args.opacity if args.opacity is not None else cfg.get("opacity")
 
     lines = detect_lines(args.image)
 
@@ -207,7 +221,7 @@ def main():
         print(f"      top={line['top_pct']}% left={line['left_pct']}% "
               f"w={line['width_pct']}% h={line['height_pct']}%")
 
-    style = get_highlight_style(args.image, args.mode, args.color, args.opacity)
+    style = get_highlight_style(args.image, mode, color, opacity)
     dims = get_image_dimensions(args.image)
 
     print(f"\n--- Image dimensions ---")
