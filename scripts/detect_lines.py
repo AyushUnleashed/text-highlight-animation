@@ -154,12 +154,21 @@ def get_highlight_style(img_path: str, mode=None, color=None, opacity=None) -> d
     if color is None:
         if mode == "invert":
             color = "#ffffff"
+        elif mode in ("underline", "squiggly"):
+            color = "#FF6B6B" if is_dark else "#FF4444"  # Red — classic underline
         elif is_dark:
             color = "#5CE1E6"  # Soft cyan on dark backgrounds
         else:
             color = "#FFD93D"  # Warm golden yellow on light backgrounds
     if opacity is None:
-        opacity = 1.0 if mode == "invert" else 0.38
+        if mode == "invert":
+            opacity = 1.0
+        elif mode in ("underline", "squiggly"):
+            opacity = 0.85
+        elif mode == "crayon":
+            opacity = 0.50
+        else:
+            opacity = 0.38
 
     blend_mode = "difference" if mode == "invert" else "normal"
 
@@ -191,7 +200,8 @@ def main():
     parser.add_argument("--end", help="End text to search for", default=None)
     parser.add_argument("--lines", help="Line range to select, e.g. '3-7' or '5'",
                         default=None)
-    parser.add_argument("--mode", choices=["invert", "marker"], default=None,
+    parser.add_argument("--mode", choices=["invert", "marker", "underline", "squiggly", "crayon"],
+                        default=None,
                         help="Highlight mode. Defaults to 'invert' for max contrast.")
     parser.add_argument("--color", default=None,
                         help="Highlight color as hex (e.g. '#FFE066').")

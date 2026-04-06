@@ -14,5 +14,27 @@
   "dark_bg_color":         "#000000",
   "light_bg_color":        "#f5f5f5",
   "ffmpeg_preset":         "medium",
-  "crf":                   18
+  "crf":                   18,
+  "underline": {
+    "frequency":       2.5,
+    "amplitude":       2.5,
+    "stroke_ratio":    0.18,
+    "baseline_offset": 0.77,
+    "jitter":          1.0,
+    "tail_flick":      true
+  },
+  "squiggly": {
+    "frequency":          5.0,
+    "amplitude":          4.0,
+    "amplitude_variance": 0.4,
+    "stroke_ratio":       0.28,
+    "baseline_offset":    0.77
+  },
+  "crayon": {
+    "grain_density":      0.6,
+    "hatch_spacing":      4,
+    "hatch_angle":        25,
+    "edge_roughness":     3.0,
+    "base_opacity_boost": 1.3
+  }
 }

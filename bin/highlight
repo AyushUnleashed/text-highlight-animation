@@ -234,7 +234,7 @@ cmd_help() {
     echo "  --lines N-M           Select line range (0-indexed)"
     echo "  --start \"text\"        Start matching from line containing text"
     echo "  --end \"text\"          End matching at line containing text"
-    echo "  --mode invert|marker  Highlight style (default: invert)"
+    echo "  --mode MODE           Highlight style: invert|marker|underline|squiggly|crayon (default: invert)"
     echo "  --color \"#hex\"        Highlight color"
     echo "  --opacity N           Highlight opacity (0.0-1.0)"
     echo "  --duration N          Override total video duration in seconds"

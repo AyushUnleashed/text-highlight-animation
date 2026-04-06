@@ -13,12 +13,12 @@ import json
 import argparse
 import math
 import os
-import struct
 import subprocess
 import sys
-import tempfile
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
+
+from highlight_modes import MODE_REGISTRY
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 _DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.default.json")
@@ -182,16 +182,6 @@ def build_highlight_rects(coords_data: dict, canvas_w: int, canvas_h: int,
     return rects, total_frames
 
 
-def hex_to_rgba(hex_color: str, opacity: float) -> tuple[int, int, int, int]:
-    """Convert '#RRGGBB' + opacity to (R, G, B, A)."""
-    hex_color = hex_color.lstrip("#")
-    r = int(hex_color[0:2], 16)
-    g = int(hex_color[2:4], 16)
-    b = int(hex_color[4:6], 16)
-    a = int(opacity * 255)
-    return (r, g, b, a)
-
-
 def _create_rounded_mask(w: int, h: int, radius: int) -> Image.Image:
     """Create a rounded-rectangle alpha mask. White = inside, black = outside."""
     # Render at 2x for anti-aliased edges, then downscale
@@ -218,7 +208,7 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
     frame = base_img.copy().convert("RGBA")
     canvas_w, canvas_h = frame.size
 
-    for rect in rects:
+    for rect_idx, rect in enumerate(rects):
         trigger_frame = cfg["highlight_start_frame"] + rect["delay"]
 
         if frame_num < trigger_frame:
@@ -277,29 +267,13 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
                 fade = 1.0 - t * t  # Quadratic fade-out toward the edge
                 mask_arr[:, col] *= fade
 
-        if mode == "invert":
-            # Extract region, invert, then composite through feathered rounded mask
-            region = frame.crop((full_x, full_y, full_x + visible_w, full_y + full_h))
-            r, g, b, a = region.split()
-            r = ImageChops.invert(r)
-            g = ImageChops.invert(g)
-            b = ImageChops.invert(b)
-            inverted = Image.merge("RGBA", (r, g, b, a))
-
-            if frame_opacity < 1.0:
-                blended = Image.blend(region, inverted, frame_opacity)
-            else:
-                blended = inverted
-
-            final_mask = Image.fromarray((mask_arr * frame_opacity / opacity if opacity > 0 else mask_arr).astype(np.uint8))
-            frame.paste(blended, (full_x, full_y), final_mask)
-        else:
-            # Marker mode: soft colored overlay with rounded corners + feathered edge
-            r, g, b, _ = hex_to_rgba(color_hex, 1.0)
-            color_layer = Image.new("RGBA", (visible_w, full_h), (r, g, b, 255))
-            final_mask_arr = mask_arr * frame_opacity
-            color_layer.putalpha(Image.fromarray(final_mask_arr.astype(np.uint8)))
-            frame.alpha_composite(color_layer, (full_x, full_y))
+        # Dispatch to the mode-specific render function
+        mode_fn = MODE_REGISTRY.get(mode)
+        if mode_fn is None:
+            raise ValueError(f"Unknown highlight mode: {mode!r}. Available: {list(MODE_REGISTRY)}")
+        frame = mode_fn(frame, (full_x, full_y, full_w, full_h), visible_w,
+                        mask_arr, frame_opacity, color_hex, opacity, is_dark,
+                        cfg, rect_idx)
 
     return frame
 
