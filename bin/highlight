@@ -150,6 +150,10 @@ cmd_generate() {
                 render_args+=("$1" "$2")
                 shift 2
                 ;;
+            --no-audio)
+                render_args+=("--no-audio")
+                shift
+                ;;
             --lines|--mode|--color|--opacity|--start|--end)
                 detect_args+=("$1" "$2")
                 shift 2
@@ -240,6 +244,7 @@ cmd_help() {
     echo "  --duration N          Override total video duration in seconds"
     echo "  --timestamps T1,T2,..  Per-line start times in seconds (for speech sync)"
     echo "  --wipe D or D1,D2,..  Wipe duration — single or per-line (seconds)"
+    echo "  --no-audio            Skip sound effect mixing (silent video)"
     echo "  --output/-o path      Output file path (e.g. out/custom.mp4)"
     echo "  --name Name           Output base name (auto-generated from params by default)"
     echo "  --config path.json    Config file (default: .highlight/config.json)"

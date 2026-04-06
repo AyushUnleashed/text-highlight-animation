@@ -9,10 +9,12 @@ FFmpeg to produce an MP4 (or a single PNG still).
 
 No Node.js, no Remotion, no browser required.
 """
+import glob
 import json
 import argparse
 import math
 import os
+import random
 import subprocess
 import sys
 import numpy as np
@@ -403,6 +405,88 @@ def build_default_name(image_path: str, coords_data: dict, total_frames: int, cf
     return "_".join(parts)
 
 
+def _find_sfx_dir(mode: str) -> str | None:
+    """Locate the sound_effects/<mode> directory relative to the tool root."""
+    tool_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # invert reuses marker sounds
+    sfx_mode = "marker" if mode == "invert" else mode
+    sfx_dir = os.path.join(tool_dir, "sound_effects", sfx_mode)
+    if os.path.isdir(sfx_dir):
+        return sfx_dir
+    return None
+
+
+def mix_audio(video_path: str, rects: list[dict], style: dict, cfg: dict):
+    """Mix per-line sound effects into the rendered video.
+
+    For each highlight line, picks a random SFX from the mode's folder,
+    delays it to the line's trigger time, mixes all into one audio track,
+    and muxes it with the silent video.
+    """
+    mode = style["mode"]
+    sfx_dir = _find_sfx_dir(mode)
+    if sfx_dir is None:
+        return  # no sounds for this mode, skip silently
+
+    sfx_files = sorted(glob.glob(os.path.join(sfx_dir, "*.wav")) +
+                       glob.glob(os.path.join(sfx_dir, "*.mp3")))
+    if not sfx_files:
+        return
+
+    fps = cfg["fps"]
+    start_frame = cfg["highlight_start_frame"]
+
+    # Build FFmpeg filter: trim each SFX to its line's wipe duration,
+    # fade out at the end, delay to trigger time, then amix all
+    inputs = []
+    filter_parts = []
+    for i, rect in enumerate(rects):
+        sfx = random.choice(sfx_files)
+        trigger_frame = start_frame + rect["delay"]
+        delay_ms = int(trigger_frame / fps * 1000)
+        wipe_frames = rect.get("wipe_frames", cfg["wipe_frames"])
+        wipe_sec = wipe_frames / fps
+        # Trim SFX to wipe duration + short fade-out
+        fade_sec = min(0.15, wipe_sec * 0.3)
+        trim_end = wipe_sec + fade_sec
+        fade_start = max(0, wipe_sec - fade_sec)
+        inputs.extend(["-i", sfx])
+        # input index is i+1 (0 is the video)
+        filter_parts.append(
+            f"[{i + 1}]atrim=0:{trim_end:.3f},afade=t=out:st={fade_start:.3f}:d={fade_sec + fade_sec:.3f},"
+            f"adelay={delay_ms}|{delay_ms},apad=pad_len=0[a{i}]"
+        )
+
+    # Mix all delayed audio streams, pad with silence to match video length
+    mix_inputs = "".join(f"[a{i}]" for i in range(len(rects)))
+    filter_parts.append(
+        f"{mix_inputs}amix=inputs={len(rects)}:normalize=0,apad[aout]"
+    )
+    filter_str = ";".join(filter_parts)
+
+    # Mux: copy video, add mixed audio (shortest = stop when video ends)
+    tmp_out = video_path + ".tmp.mp4"
+    cmd = (
+        ["ffmpeg", "-y", "-i", video_path]
+        + inputs
+        + ["-filter_complex", filter_str,
+           "-map", "0:v", "-map", "[aout]",
+           "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+           "-shortest",
+           tmp_out]
+    )
+
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode == 0:
+        os.replace(tmp_out, video_path)
+        print("  Audio: mixed SFX into video")
+    else:
+        # Clean up temp file on failure, video stays silent
+        if os.path.exists(tmp_out):
+            os.remove(tmp_out)
+        print(f"  Audio: skipped (ffmpeg error)", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Render highlight animation as MP4 or still PNG")
@@ -422,6 +506,8 @@ def main():
                         help="Frame number for --still (default: auto-pick near end)")
     parser.add_argument("--name", default=None,
                         help="Output name (default: derived from image filename)")
+    parser.add_argument("--no-audio", action="store_true",
+                        help="Skip sound effect mixing (produce silent video)")
     parser.add_argument("--config", default=None,
                         help="Path to config JSON (default: .highlight/config.json if it exists)")
 
@@ -473,6 +559,8 @@ def main():
         output_path = args.output or f"out/{name}.mp4"
         print(f"  Canvas: {canvas_w}x{canvas_h}, {total_frames} frames ({round(total_frames/cfg['fps'], 1)}s)")
         render_mp4(base_img, rects, style, total_frames, output_path, canvas_w, canvas_h, cfg)
+        if not args.no_audio:
+            mix_audio(output_path, rects, style, cfg)
         meta = {
             "output_path": output_path,
             "total_frames": total_frames,
