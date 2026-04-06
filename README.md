@@ -4,6 +4,12 @@ CLI tool that creates animated text highlight overlays on images. Give it a scre
 
 Uses OCR (RapidOCR / ONNX) to detect text lines, Pillow to render highlight frames, and FFmpeg to encode the video. No Node.js, no browser, no Remotion.
 
+## Highlight Modes
+
+| Invert | Marker | Underline | Squiggly | Crayon |
+|--------|--------|-----------|----------|--------|
+| ![invert](assets/invert.gif) | ![marker](assets/marker.gif) | ![underline](assets/underline.gif) | ![squiggly](assets/squiggly.gif) | ![crayon](assets/crayon.gif) |
+
 ## Install
 
 ### Prerequisites
