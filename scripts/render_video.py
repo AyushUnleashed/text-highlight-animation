@@ -20,39 +20,27 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-# ─── Default config ─────────────────────────────────────────────────────────
-_DEFAULTS: dict = {
-    "padding_y":             0.45,   # Vertical padding around text
-    "padding_x":             0.7,    # Horizontal padding around text
-    "vertical_shift":        0.08,   # Downward shift (OCR boxes hug ascenders slightly)
-    "height_scale":          1.0,    # Bounding box height multiplier
-    "corner_radius":         0.22,   # Rounded corners as ratio of highlight height
-    "image_fill":            0.9,    # Image fills X% of canvas width
-    "highlight_start_frame": 20,     # Frame when first highlight begins
-    "wipe_frames":           18,     # Default wipe duration in frames
-    "hold_frames":           30,     # Frames to hold after wipe completes
-    "fps":                   30,     # Video framerate
-    "feather_ratio":         0.18,   # Leading-edge feather = X% of highlight width
-    "dark_bg_color":         "#000000",
-    "light_bg_color":        "#f5f5f5",
-    "ffmpeg_preset":         "medium",
-    "crf":                   18,
-}
+# ─── Config ──────────────────────────────────────────────────────────────────
+_DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.default.json")
 
 
 def load_config(config_path: str | None = None) -> dict:
-    """Load config from JSON, merging with defaults for any missing keys.
+    """Load config from JSON files.
 
-    Looks for .highlight/config.json by default. Any key present in the file
-    overrides the default. CLI flags passed to individual functions take
-    priority over config values.
+    Always starts from scripts/config.default.json (shipped with the tool).
+    If --config is passed, that file is read and merged on top — so you only
+    need to specify the keys you want to override.
+    If no --config is passed, also checks .highlight/config.json in the
+    working directory as a per-project override.
     """
-    cfg = dict(_DEFAULTS)
-    path = config_path or ".highlight/config.json"
-    if os.path.isfile(path):
-        with open(path) as f:
-            overrides = json.load(f)
-        cfg.update(overrides)
+    with open(_DEFAULT_CONFIG) as f:
+        cfg = json.load(f)
+
+    overlay_path = config_path or ".highlight/config.json"
+    if os.path.isfile(overlay_path):
+        with open(overlay_path) as f:
+            cfg.update(json.load(f))
+
     return cfg
 
 
@@ -134,7 +122,7 @@ def build_highlight_rects(coords_data: dict, canvas_w: int, canvas_h: int,
                           cfg: dict | None = None) -> tuple[list[dict], int]:
     """Convert line percentages to pixel rects with delays. Returns (rects, total_frames)."""
     if cfg is None:
-        cfg = dict(_DEFAULTS)
+        cfg = load_config()
     lines = coords_data["lines"]
     n = len(lines)
 
@@ -220,7 +208,7 @@ def render_frame(base_img: Image.Image, rects: list[dict], style: dict,
                  frame_num: int, cfg: dict | None = None) -> Image.Image:
     """Render a single animation frame with highlight overlays."""
     if cfg is None:
-        cfg = dict(_DEFAULTS)
+        cfg = load_config()
     mode = style["mode"]
     color_hex = style["color"]
     opacity = style["opacity"]
@@ -329,7 +317,7 @@ def render_mp4(base_img: Image.Image, rects: list[dict], style: dict,
                cfg: dict | None = None):
     """Render all frames and pipe to FFmpeg for MP4 output."""
     if cfg is None:
-        cfg = dict(_DEFAULTS)
+        cfg = load_config()
     # Ensure even dimensions (required by h264)
     canvas_w = canvas_w if canvas_w % 2 == 0 else canvas_w + 1
     canvas_h = canvas_h if canvas_h % 2 == 0 else canvas_h + 1
@@ -388,7 +376,7 @@ def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
                        bg_color: str, cfg: dict | None = None) -> Image.Image:
     """Load source image, center it on a canvas with padding (like the old Remotion layout)."""
     if cfg is None:
-        cfg = dict(_DEFAULTS)
+        cfg = load_config()
     src = Image.open(img_path).convert("RGBA")
     src_w, src_h = src.size
 

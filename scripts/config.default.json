@@ -1,0 +1,17 @@
+{
+  "padding_y":             0.45,
+  "padding_x":             0.7,
+  "vertical_shift":        0.08,
+  "height_scale":          1.0,
+  "corner_radius":         0.22,
+  "image_fill":            0.9,
+  "highlight_start_frame": 20,
+  "wipe_frames":           18,
+  "hold_frames":           30,
+  "fps":                   30,
+  "feather_ratio":         0.18,
+  "dark_bg_color":         "#000000",
+  "light_bg_color":        "#f5f5f5",
+  "ffmpeg_preset":         "medium",
+  "crf":                   18
+}
