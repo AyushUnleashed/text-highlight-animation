@@ -166,7 +166,7 @@ def get_highlight_style(img_path: str, mode=None, color=None, opacity=None) -> d
         elif mode in ("underline", "squiggly"):
             opacity = 0.85
         elif mode == "crayon":
-            opacity = 0.50
+            opacity = 0.70
         else:
             opacity = 0.38
 

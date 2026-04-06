@@ -363,6 +363,15 @@ def prepare_base_image(img_path: str, canvas_w: int, canvas_h: int,
 
     src_resized = src.resize((target_w, target_h), Image.LANCZOS)
 
+    # Apply rounded corners to the image if there's visible padding
+    corner_r = cfg.get("image_corner_radius", 0)
+    if corner_r > 0 and (target_w < canvas_w or target_h < canvas_h):
+        # Scale radius proportionally to image size
+        r = int(corner_r * (target_w / 1080))
+        r = max(2, r)
+        corner_mask = _create_rounded_mask(target_w, target_h, r)
+        src_resized.putalpha(corner_mask)
+
     # Create canvas
     canvas = Image.new("RGBA", (canvas_w, canvas_h), bg_color)
     offset_x = (canvas_w - target_w) // 2
