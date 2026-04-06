@@ -141,6 +141,11 @@ cmd_generate() {
                 render_args+=("--wipe" "$2")
                 shift 2
                 ;;
+            --config)
+                detect_args+=("$1" "$2")
+                render_args+=("$1" "$2")
+                shift 2
+                ;;
             --lines|--mode|--color|--opacity|--start|--end)
                 detect_args+=("$1" "$2")
                 shift 2
@@ -232,6 +237,7 @@ cmd_help() {
     echo "  --timestamps T1,T2,..  Per-line start times in seconds (for speech sync)"
     echo "  --wipe D or D1,D2,..  Wipe duration — single or per-line (seconds)"
     echo "  --name Name           Output filename (default: derived from image)"
+    echo "  --config path.json    Config file (default: .highlight/config.json)"
     echo ""
     echo "Still options:"
     echo "  --frame N             Frame number to render (default: auto)"
